@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-static const int  FILE_SEEK_ERROR =-2;
-
 #define PAGES_CAP 1024
 #define PAGE_SIZE 4096
 #define PAGE_MASK 0xfff
@@ -13,18 +11,22 @@ static int64_t mem[PAGE_SIZE];
 typedef struct MemPage MemPage;
 struct MemPage{
   int64_t pageId;
-  int64_t* data;
+  int64_t* data;//XXX? allow multiple types: int float list
   MemPage* next;
 };
 static MemPage memPages[PAGES_CAP];
 
-//XXX? unlimited stacks
-static int64_t valStack[1024];//XXX? allow multiple types: int float list
-static int64_t valCount=0;
-static size_t valCap=1024;
-static size_t ipStack[1024];
-static size_t ipCount=0;
-static size_t ipCap=1024;
+//memory layout:
+#define CALL_STACK_MIN (int64_t)-0x8000000000000000LL
+// [-0x8000_0000_0000_0000 ... ] callStack
+// [ .... -1]                    source code
+// [0, .... ]                    program memory
+// [..., 0x7fff_ffff_ffff_ffff]  value-stack
+#define VALUE_STACK_MAX (int64_t)0x7FFFFFFFFFFFFFFFLL
+static int64_t ip=-1;//instruction pointer
+static int64_t callStackPtr=CALL_STACK_MIN;
+static int64_t valueStackPtr=VALUE_STACK_MAX;
+
 static int64_t forCount=0;
 static int64_t whileCount=0;
 static int64_t procCount=0;
@@ -67,51 +69,49 @@ int64_t* getMemory(int64_t address){//XXX? only allocate on write with non-zero 
   return &newPage(page,pageId)->data[address&PAGE_MASK];
 }
 
+bool valueStackEmpty(void){
+  return safeMode&&((VALUE_STACK_MAX-valueStackPtr))<=0;
+}
+int64_t valCount(void){
+  return (VALUE_STACK_MAX-valueStackPtr);
+}
 void pushValue(int64_t val){
-  if(valCount<0){
-    fputs("stack-underflow\n",stderr);exit(1);
-  }
-  if(((size_t)valCount)>=valCap){
-    fputs("stack-overflow\n",stderr);exit(1);
-  }
-  valStack[valCount++]=val;
+  *getMemory(valueStackPtr)=val;
+  valueStackPtr--;
 }
 int64_t peekValue(void){
-  if(valCount<=0){
-    if(safeMode){
-      fputs("stack-underflow\n",stderr);exit(1);
-    }
-    return 0;
+  if(valueStackEmpty()){
+    fputs("stack-underflow\n",stderr);exit(1);
   }
-  return valStack[valCount-1];
+  return *getMemory(valueStackPtr+1);
 }
 int64_t popValue(void){
-  if(valCount<=0){
-    if(safeMode){
-      fputs("stack-underflow\n",stderr);exit(1);
-      }
-    return 0;
+  if(valueStackEmpty()){
+    fputs("stack-underflow\n",stderr);exit(1);
   }
-  return valStack[--valCount];
+  valueStackPtr++;
+  return *getMemory(valueStackPtr);
 }
 
-void callStackPush(int64_t ip){
-  if(ipCount>=ipCap){
-    fputs("call-stack overflow\n",stderr);exit(1);
-  }
-  ipStack[ipCount++]=ip;
+bool callStackEmpty(void){
+  return safeMode&&((callStackPtr-CALL_STACK_MIN))<=0;
+}
+void callStackPush(int64_t pos){
+  *getMemory(callStackPtr)=pos;
+  callStackPtr++;
 }
 int64_t callStackPeek(void){
-  if(ipCount<1){
+  if(callStackEmpty()){
     fputs("call-stack underflow\n",stderr);exit(1);
   }
-  return ipStack[ipCount-1];
+  return *getMemory(callStackPtr-1);
 }
 int64_t callStackPop(void){
-  if(ipCount<1){
+  if(callStackEmpty()){
     fputs("call-stack underflow\n",stderr);exit(1);
   }
-  return ipStack[--ipCount];
+  callStackPtr--;
+  return *getMemory(callStackPtr);
 }
 
 int64_t ipow(int64_t a,int64_t e){
@@ -130,17 +130,19 @@ int64_t ipow(int64_t a,int64_t e){
 	return res;
 }
 
-void runProgram(char* chars,size_t size){//unused characters:  abcdefghjklmnqrstuvwxyz  #ABCDEFGHIJKLMNOPQRSTUVWXYZ
-	for(size_t ip=0;ip<size;ip++){
+void runProgram(void){//unused characters:  abcdefghjklmnqrstuvwxyz  #ABCDEFGHIJKLMNOPQRSTUVWXYZ
+  char command;
+	while(true){//while program is running
+	  command=*getMemory(ip--)&0xff;
 	  if(comment){
-	    if(chars[ip]=='\n')
+	    if(command=='\n')
 	      comment=false;
 	    continue;
 	  }
 		if(stringMode){
 			if(escapeMode){
 				escapeMode=false;
-				switch(chars[ip]){
+				switch(command){
 				case '"':
 					pushValue('"');
 					break;
@@ -157,61 +159,64 @@ void runProgram(char* chars,size_t size){//unused characters:  abcdefghjklmnqrst
 					pushValue('\r');
 					break;//more escape sequences
 				default:
-					fprintf(stderr,"unsupported escape sequence: \\%c\n",chars[ip]);exit(1);
+					fprintf(stderr,"unsupported escape sequence: \\%c\n",command);exit(1);
 				}
-			}else if(chars[ip]=='\\'){
+			}else if(command=='\\'){
 				escapeMode=true;
-			}else if(chars[ip]=='"'){
+			}else if(command=='"'){
 				stringMode=false;
-				int64_t tmp=valCount-callStackPop();
+				int64_t tmp=callStackPop()-valueStackPtr;
 				pushValue(tmp);
 			}else{
-				pushValue(chars[ip]);
+				pushValue(command);
 			}
 			continue;
 		}
 		if(procCount>0){
-			if(chars[ip]=='{'){
+			if(command=='{'){
 				procCount++;
-			}else if(chars[ip]=='}'){//TODO only close procedure if close on same level as open
+			}else if(command=='}'){//TODO only close procedure if close on same level as open
 				procCount--;
 			}
 			continue;
 		}
 		if(whileCount>0){
-			if(chars[ip]=='['){
+			if(command=='['){
 				whileCount++;
-			}else if(chars[ip]==']'){
+			}else if(command==']'){
 				whileCount--;
 			}
 			continue;
 		}
 		if(forCount>0){
-			if(chars[ip]=='('){
+			if(command=='('){
 				forCount++;
-			}else if(chars[ip]==')'){
+			}else if(command==')'){
 				forCount--;
 			}
 			continue;
 		}
-	  if(chars[ip]>='0'&&chars[ip]<='9'){
+	  if(command>='0'&&command<='9'){
 	    if(numberMode){
-	      valStack[valCount-1]=10*valStack[valCount-1]+(chars[ip]-'0');
+	      int64_t v=popValue();
+	      pushValue(10*v+(command-'0'));
 	    }else{
-				pushValue(chars[ip]-'0');
+				pushValue(command-'0');
 	      numberMode=true;
 	    }
 	    continue;
 	  }
 	  numberMode=false;
-		switch(chars[ip]){
+		switch(command){
 			case '0':case '1':case '2':case '3':case '4':
 			case '5':case '6':case '7':case '8':case '9'://digits have already been handled
 			case ' '://ignore spaces
 				break;
+		  case '\0':
+		    return;//reached end of program
 		  //strings&comments
 			case '"':
-				callStackPush(valCount);
+				callStackPush(valueStackPtr);
 				stringMode=true;
 				break;
 			case '\\':
@@ -258,10 +263,8 @@ void runProgram(char* chars,size_t size){//unused characters:  abcdefghjklmnqrst
 				procCount=1;
 				break;
 			case '}':
-				if(ipCount<=0){
-				  if(safeMode){
-					  fputs("unexpected '}'\n",stderr);exit(1);
-				  }
+				if(callStackEmpty()){
+				  fputs("unexpected '}'\n",stderr);exit(1);
 					break;
 				}
 				ip=callStackPop();//return
@@ -296,28 +299,24 @@ void runProgram(char* chars,size_t size){//unused characters:  abcdefghjklmnqrst
 				if(count==0)
 				  break;
 				if(count>0){
-				  if(count>valCount){
-				    if(safeMode){
-					    fputs("stack underflow",stderr);exit(1);
-				    }
-					  pushValue(0);//? shift stack up s.t. there are count elements on stack
-				    break;
+				  if(safeMode&&count>valCount()){
+			      fputs("stack underflow",stderr);exit(1);
+			    }
+				  int64_t a=*getMemory(valueStackPtr+count); // ^ 1 2 3
+				  for(int64_t i=count;i>1;i--){
+				    *getMemory(valueStackPtr+i)=*getMemory(valueStackPtr+(i-1));
 				  }
-				  int64_t a=valStack[valCount-count];
-				  memmove(&valStack[valCount-count],&valStack[valCount-count+1],(count-1)*sizeof(*valStack));
-				  valStack[valCount-1]=a;
+				  *getMemory(valueStackPtr+1)=a;
 				}else{
 				  count=-count;
-				  if(count>valCount){
-				    if(safeMode){
-					    fputs("stack underflow",stderr);exit(1);
-				    }
-					  popValue();//? shift stack up s.t. there are count elements on stack
-				    break;
+				  if(safeMode&&count>valCount()){
+				    fputs("stack underflow",stderr);exit(1);
 				  }
-				  int64_t a=valStack[valCount-1];
-				  memmove(&valStack[valCount-count+1],&valStack[valCount-count],(count-1)*sizeof(*valStack));
-				  valStack[valCount-count]=a;
+				  int64_t a=*getMemory(valueStackPtr+1); // ^ 1 2 3
+				  for(int64_t i=1;i<count;i++){
+				    *getMemory(valueStackPtr+i)=*getMemory(valueStackPtr+(i+1));
+				  }
+				  *getMemory(valueStackPtr+count)=a;
 				}
 				}break;
 			//memory
@@ -417,86 +416,56 @@ void runProgram(char* chars,size_t size){//unused characters:  abcdefghjklmnqrst
 				break;
 		}
 	}
-
-	puts("\n------------------");
-	printf("%"PRId64":",valCount);
-	while(valCount>0){
-		printf("%"PRId64" ",valStack[--valCount]);
-	}
-	puts("");
 }
 
-/* Copy from StackOverflow
- * fp is assumed to be non null
- * */
-long int fsize(FILE *fp){
-    long int prev=ftell(fp);
-    if(prev==-1||fseek(fp, 0L, SEEK_END)!=0){
-		return FILE_SEEK_ERROR;
+
+#define BUFF_CAP 1024
+char buffer[BUFF_CAP];
+void readCode(FILE* file){
+  size_t size;
+  int64_t off=-1;
+  do{
+    size=fread(buffer,sizeof(char),BUFF_CAP,file);
+    for(size_t i=0;i<size;i++){
+      *getMemory(off--)=buffer[i];
     }
-    long int sz=ftell(fp);
-    //go back to where we were
-    if(fseek(fp,prev,SEEK_SET)!=0){
-		return FILE_SEEK_ERROR;
-    }
-    return sz;
+  }while(size>0);
+}
+void codeFromCString(const char* code){
+  int64_t i=0;
+  while(code[i]!='\0'){
+    *getMemory(-1-i)=code[i];
+    i++;
+  }
 }
 int main(int numArgs,char** args) {
-	bool loadFile;
-	char *code=NULL;
+	bool loadFile=true;
+	char *path=NULL;
 	if(numArgs==2){
 		loadFile=false;
-		code = args[1];
+		codeFromCString(args[1]);
 	}else if(numArgs>2&&(strcmp(args[1],"-f")==0)){
 		loadFile=true;
-		code = args[2];
+		path = args[2];
 	}
-	if(code==NULL){
+	if(loadFile&&path==NULL){
 		printf("usage: [Filename]\n or -f [Filename]");
 		return EXIT_FAILURE;
 	}
-	long int size;
 	if(loadFile){
-		FILE *file = fopen(code, "r");
-		if(file!=NULL){
-			size=fsize(file);
-			if(size==FILE_SEEK_ERROR){
-				printf("IO Error while detecting file-size\n");
-				return EXIT_FAILURE;
-			}else if(size<0){//XXX recover form undetected file size (if seek worked)
-				printf("IO Error while detecting file-size\n");
-				return EXIT_FAILURE;
-			}else{
-				code = malloc((size+1)*sizeof(char));
-				if(code==NULL){
-					printf("Memory Error\n");
-					return EXIT_FAILURE;
-				}
-				size=fread(code,sizeof(char),size,file);
-				if(size<0){
-					printf("IO Error while reading file\n");
-					free(code);
-					return EXIT_FAILURE;
-				}
-				fclose(file);//file no longer needed (whole contents are buffered)
-			}
-			if(code==NULL){
-				printf("Memory Error\n");
-				return EXIT_FAILURE;
-			}
-		}else{
-			printf("IO Error while opening File: %s\n",code);
-			return EXIT_FAILURE;
-		}
-		code[size]='\0';//null-terminate string (for printf)
-	}else{
-		size=strlen(code);
+		FILE *file = fopen(path, "r");
+		readCode(file);
+		fclose(file);//file no longer needed (whole contents are buffered)
 	}
 	//print buffer
-	runProgram(code,size);
-	if(loadFile){
-		free(code);
+	runProgram();
+
+	puts("\n------------------");
+	printf("%"PRId64":",valCount());
+	while(valCount()>0){
+		printf("%"PRId64" ",popValue());
 	}
+	puts("");
 	return EXIT_SUCCESS;
 }
 
