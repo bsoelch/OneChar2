@@ -7,7 +7,7 @@
 #define PAGES_CAP 1024
 #define PAGE_SIZE 4096
 #define PAGE_MASK 0xfff
-static int64_t mem[PAGE_SIZE];
+static int64_t mem[PAGE_SIZE];//XXX? fixed pages for code/stack regions
 typedef struct MemPage MemPage;
 struct MemPage{
   int64_t pageId;
@@ -46,7 +46,7 @@ MemPage* newPage(MemPage* target,int64_t pageId){
   target->next=NULL;
   return target;
 }
-int64_t* getMemory(int64_t address){//XXX? only allocate on write with non-zero value
+int64_t* getMemory(int64_t address){//XXX? only allocate on write with non-zero value (separeate read and write, only create new pages on write)
   int64_t pageId=((uint64_t)address)/PAGE_SIZE;
   if(pageId==0)
     return &mem[address];
@@ -134,6 +134,8 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
   char command;
 	while(true){//while program is running
 	  command=*getMemory(ip--)&0xff;
+	  if(command=='\0')
+	    return;//reached end of program
 	  if(comment){
 	    if(command=='\n')
 	      comment=false;
@@ -142,6 +144,8 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 		if(stringMode){
 			if(escapeMode){
 				escapeMode=false;
+				if(procCount>0||forCount>0||whileCount>0)
+				  continue;//string in skipped loop
 				switch(command){
 				case '"':
 					pushValue('"');
@@ -165,9 +169,13 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				escapeMode=true;
 			}else if(command=='"'){
 				stringMode=false;
+				if(procCount>0||forCount>0||whileCount>0)
+				  continue;//string in skipped loop
 				int64_t tmp=callStackPop()-valueStackPtr;
 				pushValue(tmp);
 			}else{
+				if(procCount>0||forCount>0||whileCount>0)
+				  continue;//string in skipped loop
 				pushValue(command);
 			}
 			continue;
@@ -177,6 +185,8 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				procCount++;
 			}else if(command=='}'){//TODO only close procedure if close on same level as open
 				procCount--;
+			}else if(command=='"'){
+			  stringMode=true;
 			}
 			continue;
 		}
@@ -185,6 +195,8 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				whileCount++;
 			}else if(command==']'){
 				whileCount--;
+			}else if(command=='"'){
+			  stringMode=true;
 			}
 			continue;
 		}
@@ -193,6 +205,8 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				forCount++;
 			}else if(command==')'){
 				forCount--;
+			}else if(command=='"'){
+			  stringMode=true;
 			}
 			continue;
 		}
@@ -212,8 +226,6 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 			case '5':case '6':case '7':case '8':case '9'://digits have already been handled
 			case ' '://ignore spaces
 				break;
-		  case '\0':
-		    return;//reached end of program
 		  //strings&comments
 			case '"':
 				callStackPush(valueStackPtr);
@@ -391,7 +403,7 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				}break;
 			case '!':{
 				int64_t a=popValue();
-				pushValue(a!=0);
+				pushValue(a==0);
 				}break;
 			case '~':{
 				int64_t a=popValue();
