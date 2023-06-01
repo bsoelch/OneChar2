@@ -130,7 +130,7 @@ int64_t ipow(int64_t a,int64_t e){
 	return res;
 }
 
-void runProgram(void){//unused characters:  abcdefghjklmnqrstuvwxyz  #ABCDEFGHIJKLMNOPQRSTUVWXYZ
+void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHIJKLMNOPQRSTUVWXYZ
   char command;
 	while(true){//while program is running
 	  command=*getMemory(ip--)&0xff;
@@ -397,20 +397,16 @@ void runProgram(void){//unused characters:  abcdefghjklmnqrstuvwxyz  #ABCDEFGHIJ
 				int64_t a=popValue();
 				pushValue(~a);
 				}break;
-			case '_':{
-				int64_t a=popValue();
-				pushValue(-a);
-				}break;
+		  case '_':{
+		    pushValue(getchar());
+		    }break;
+		  case '#':{
+		    int64_t v=popValue();
+		    putchar(v&0xff);
+		    }break;
 		  case 'p':{
 		    int64_t v=popValue();
 		    printf("%"PRIi64"\n",v);
-		    }break;
-		  case 'i':{
-		    pushValue(getchar());
-		    }break;
-		  case 'o':{
-		    int64_t v=popValue();
-		    putchar(v&0xff);
 		    }break;
 			default:
 				break;
@@ -454,6 +450,10 @@ int main(int numArgs,char** args) {
 	}
 	if(loadFile){
 		FILE *file = fopen(path, "r");
+		if(file==NULL){
+		  printf("cannot open file \"%s\"\n",path);
+		  return EXIT_FAILURE;
+		}
 		readCode(file);
 		fclose(file);//file no longer needed (whole contents are buffered)
 	}
