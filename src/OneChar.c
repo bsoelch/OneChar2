@@ -37,7 +37,7 @@ static bool numberMode=false;
 static bool escapeMode=false;
 static bool safeMode=true;
 
-MemPage* newPage(MemPage* target,int64_t pageId){
+MemPage* initPage(MemPage* target,int64_t pageId){
   target->pageId=pageId;
   target->data=calloc(PAGE_SIZE,sizeof(MemPage));
 	if(target->data==NULL){
@@ -53,7 +53,7 @@ int64_t* getMemory(int64_t address,bool alloc){
   MemPage* page=&memPages[pageId%PAGES_CAP];
   if(page->pageId==0){
     if(alloc)
-      return &newPage(page,pageId)->data[address&PAGE_MASK];
+      return &initPage(page,pageId)->data[address&PAGE_MASK];
     return NULL;
   }
 	if(page->pageId==pageId)
@@ -63,14 +63,14 @@ int64_t* getMemory(int64_t address,bool alloc){
 	  if(page->pageId==pageId)
 	    return &page->data[address&PAGE_MASK];
 	}
+	if(!alloc)
+    return NULL;
 	page->next=malloc(sizeof(MemPage));
 	if(page->next==NULL){
     fputs("out-of memory\n",stderr);exit(1);
 	}
 	page=page->next;
-	if(alloc)
-    return &newPage(page,pageId)->data[address&PAGE_MASK];
-  return NULL;
+  return &initPage(page,pageId)->data[address&PAGE_MASK];
 }
 int64_t readMemory(int64_t address){
   int64_t* cell=getMemory(address,false);
