@@ -146,7 +146,7 @@ int64_t ipow(int64_t a,int64_t e){
   return res;
 }
 
-void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHIJKLMNOPQRSTUVWXYZ
+void runProgram(void){
   char command;
   while(true){//while program is running
     command=readMemory(ip--)&0xff;
@@ -431,10 +431,6 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
       case '#':{
         int64_t v=popValue();
         putchar(v&0xff);
-        }break;
-      case 'p':{
-        int64_t v=popValue();
-        printf("%"PRIi64"\n",v);
         }break;
       default:
         break;
