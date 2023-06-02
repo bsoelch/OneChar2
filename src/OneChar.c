@@ -11,7 +11,7 @@ static int64_t mem[PAGE_SIZE];//XXX? fixed pages for code/stack regions
 typedef struct MemPage MemPage;
 struct MemPage{
   int64_t pageId;
-  int64_t* data;//XXX? allow multiple types: int float list
+  int64_t* data;
   MemPage* next;
 };
 static MemPage memPages[PAGES_CAP];
@@ -46,13 +46,15 @@ MemPage* newPage(MemPage* target,int64_t pageId){
   target->next=NULL;
   return target;
 }
-int64_t* getMemory(int64_t address){//XXX? only allocate on write with non-zero value (separeate read and write, only create new pages on write)
+int64_t* getMemory(int64_t address,bool alloc){
   int64_t pageId=((uint64_t)address)/PAGE_SIZE;
   if(pageId==0)
     return &mem[address];
   MemPage* page=&memPages[pageId%PAGES_CAP];
   if(page->pageId==0){
-    return &newPage(page,pageId)->data[address&PAGE_MASK];
+    if(alloc)
+      return &newPage(page,pageId)->data[address&PAGE_MASK];
+    return NULL;
   }
 	if(page->pageId==pageId)
 	  return &page->data[address&PAGE_MASK];
@@ -66,7 +68,21 @@ int64_t* getMemory(int64_t address){//XXX? only allocate on write with non-zero 
     fputs("out-of memory\n",stderr);exit(1);
 	}
 	page=page->next;
-  return &newPage(page,pageId)->data[address&PAGE_MASK];
+	if(alloc)
+    return &newPage(page,pageId)->data[address&PAGE_MASK];
+  return NULL;
+}
+int64_t readMemory(int64_t address){
+  int64_t* cell=getMemory(address,false);
+  if(cell==NULL)
+    return 0;
+  return *cell;
+}
+void writeMemory(int64_t address,int64_t value){
+  int64_t* cell=getMemory(address,value!=0);
+  if(cell==NULL)
+    return;
+  *cell=value;
 }
 
 bool valueStackEmpty(void){
@@ -76,42 +92,42 @@ int64_t valCount(void){
   return (VALUE_STACK_MAX-valueStackPtr);
 }
 void pushValue(int64_t val){
-  *getMemory(valueStackPtr)=val;
+  writeMemory(valueStackPtr,val);
   valueStackPtr--;
 }
 int64_t peekValue(void){
   if(valueStackEmpty()){
     fputs("stack-underflow\n",stderr);exit(1);
   }
-  return *getMemory(valueStackPtr+1);
+  return readMemory(valueStackPtr+1);
 }
 int64_t popValue(void){
   if(valueStackEmpty()){
     fputs("stack-underflow\n",stderr);exit(1);
   }
   valueStackPtr++;
-  return *getMemory(valueStackPtr);
+  return readMemory(valueStackPtr);
 }
 
 bool callStackEmpty(void){
   return safeMode&&((callStackPtr-CALL_STACK_MIN))<=0;
 }
 void callStackPush(int64_t pos){
-  *getMemory(callStackPtr)=pos;
+  writeMemory(callStackPtr,pos);
   callStackPtr++;
 }
 int64_t callStackPeek(void){
   if(callStackEmpty()){
     fputs("call-stack underflow\n",stderr);exit(1);
   }
-  return *getMemory(callStackPtr-1);
+  return readMemory(callStackPtr-1);
 }
 int64_t callStackPop(void){
   if(callStackEmpty()){
     fputs("call-stack underflow\n",stderr);exit(1);
   }
   callStackPtr--;
-  return *getMemory(callStackPtr);
+  return readMemory(callStackPtr);
 }
 
 int64_t ipow(int64_t a,int64_t e){
@@ -133,7 +149,7 @@ int64_t ipow(int64_t a,int64_t e){
 void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHIJKLMNOPQRSTUVWXYZ
   char command;
 	while(true){//while program is running
-	  command=*getMemory(ip--)&0xff;
+	  command=readMemory(ip--)&0xff;
 	  if(command=='\0')
 	    return;//reached end of program
 	  if(comment){
@@ -314,31 +330,31 @@ void runProgram(void){//unused characters:  abcdefghijklmnoqrstuvwxyz  ABCDEFGHI
 				  if(safeMode&&count>valCount()){
 			      fputs("stack underflow",stderr);exit(1);
 			    }
-				  int64_t a=*getMemory(valueStackPtr+count); // ^ 1 2 3
+				  int64_t a=readMemory(valueStackPtr+count); // ^ 1 2 3
 				  for(int64_t i=count;i>1;i--){
-				    *getMemory(valueStackPtr+i)=*getMemory(valueStackPtr+(i-1));
+				    writeMemory(valueStackPtr+i,readMemory(valueStackPtr+(i-1)));
 				  }
-				  *getMemory(valueStackPtr+1)=a;
+				  writeMemory(valueStackPtr+1,a);
 				}else{
 				  count=-count;
 				  if(safeMode&&count>valCount()){
 				    fputs("stack underflow",stderr);exit(1);
 				  }
-				  int64_t a=*getMemory(valueStackPtr+1); // ^ 1 2 3
+				  int64_t a=readMemory(valueStackPtr+1); // ^ 1 2 3
 				  for(int64_t i=1;i<count;i++){
-				    *getMemory(valueStackPtr+i)=*getMemory(valueStackPtr+(i+1));
+				    writeMemory(valueStackPtr+i,readMemory(valueStackPtr+(i+1)));
 				  }
-				  *getMemory(valueStackPtr+count)=a;
+				  writeMemory(valueStackPtr+count,a);
 				}
 				}break;
 			//memory
 			case '@':{
 				int64_t addr=popValue();
-				pushValue(*getMemory(addr));
+				pushValue(readMemory(addr));
 				}break;
 			case '$':{
 				int64_t addr=popValue();
-				*getMemory(addr)=popValue();
+				writeMemory(addr,popValue());
 				}break;
 		  //arithmetic operations
 			case '+':{
@@ -435,14 +451,14 @@ void readCode(FILE* file){
   do{
     size=fread(buffer,sizeof(char),BUFF_CAP,file);
     for(size_t i=0;i<size;i++){
-      *getMemory(off--)=buffer[i];
+      writeMemory(off--,buffer[i]);
     }
   }while(size>0);
 }
 void codeFromCString(const char* code){
   int64_t i=0;
   while(code[i]!='\0'){
-    *getMemory(-1-i)=code[i];
+    writeMemory(-1-i,code[i]);
     i++;
   }
 }
