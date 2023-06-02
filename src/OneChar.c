@@ -27,15 +27,30 @@ static int64_t ip=-1;//instruction pointer
 static int64_t callStackPtr=CALL_STACK_MIN;
 static int64_t valueStackPtr=VALUE_STACK_MAX;
 
-static int64_t forCount=0;
-static int64_t whileCount=0;
-static int64_t procCount=0;
+static int64_t skipCount=0;
 
 static bool comment=false;
 static bool stringMode=false;
 static bool numberMode=false;
 static bool escapeMode=false;
-static bool safeMode=true;
+static bool checkUnderflow=true;
+
+#define BLOCK_TYPE_WHILE '['
+#define BLOCK_TYPE_FOR '('
+#define BLOCK_TYPE_PROC '{'
+
+const char* blockTypeName(int64_t blockType){
+  switch(blockType){
+    case BLOCK_TYPE_WHILE:
+      return "[]";
+    case BLOCK_TYPE_FOR:
+      return "()";
+    case BLOCK_TYPE_PROC:
+      return "{}";
+    default:
+      return "\"unknown block type\"";
+  }
+}
 
 MemPage* initPage(MemPage* target,int64_t pageId){
   target->pageId=pageId;
@@ -86,7 +101,7 @@ void writeMemory(int64_t address,int64_t value){
 }
 
 bool valueStackEmpty(void){
-  return safeMode&&((VALUE_STACK_MAX-valueStackPtr))<=0;
+  return checkUnderflow&&((VALUE_STACK_MAX-valueStackPtr))<=0;
 }
 int64_t valCount(void){
   return (VALUE_STACK_MAX-valueStackPtr);
@@ -110,7 +125,7 @@ int64_t popValue(void){
 }
 
 bool callStackEmpty(void){
-  return safeMode&&((callStackPtr-CALL_STACK_MIN))<=0;
+  return checkUnderflow&&((callStackPtr-CALL_STACK_MIN))<=0;
 }
 void callStackPush(int64_t pos){
   writeMemory(callStackPtr,pos);
@@ -148,6 +163,7 @@ int64_t ipow(int64_t a,int64_t e){
 
 void runProgram(void){
   char command;
+  int64_t type;
   while(true){//while program is running
     command=readMemory(ip--)&0xff;
     if(command=='\0')
@@ -160,7 +176,7 @@ void runProgram(void){
     if(stringMode){
       if(escapeMode){
         escapeMode=false;
-        if(procCount>0||forCount>0||whileCount>0)
+        if(skipCount>0)
           continue;//string in skipped loop
         switch(command){
         case '"':
@@ -185,44 +201,55 @@ void runProgram(void){
         escapeMode=true;
       }else if(command=='"'){
         stringMode=false;
-        if(procCount>0||forCount>0||whileCount>0)
+        if(skipCount>0)
           continue;//string in skipped loop
         int64_t tmp=callStackPop()-valueStackPtr;
         pushValue(tmp);
       }else{
-        if(procCount>0||forCount>0||whileCount>0)
+        if(skipCount>0)
           continue;//string in skipped loop
         pushValue(command);
       }
       continue;
     }
-    if(procCount>0){
-      if(command=='{'){
-        procCount++;
-      }else if(command=='}'){//TODO only close procedure if close on same level as open
-        procCount--;
-      }else if(command=='"'){
-        stringMode=true;
-      }
-      continue;
-    }
-    if(whileCount>0){
-      if(command=='['){
-        whileCount++;
-      }else if(command==']'){
-        whileCount--;
-      }else if(command=='"'){
-        stringMode=true;
-      }
-      continue;
-    }
-    if(forCount>0){
-      if(command=='('){
-        forCount++;
-      }else if(command==')'){
-        forCount--;
-      }else if(command=='"'){
-        stringMode=true;
+    if(skipCount>0){
+      switch(command){
+        case '[':
+          callStackPush(BLOCK_TYPE_WHILE);
+          skipCount++;
+          break;
+        case '(':
+          callStackPush(BLOCK_TYPE_FOR);
+          skipCount++;
+          break;
+        case '{':
+          callStackPush(BLOCK_TYPE_PROC);
+          skipCount++;
+          break;
+        case ']':
+          type=callStackPop();
+          if(type!=BLOCK_TYPE_WHILE){
+            fprintf(stderr,"unexpected ']' in '%s' block\n",blockTypeName(type));exit(1);
+          }
+          skipCount--;
+          break;
+        case ')':
+          type=callStackPop();
+          if(type!=BLOCK_TYPE_FOR){
+            fprintf(stderr,"unexpected ')' in '%s' block\n",blockTypeName(type));exit(1);
+          }
+          skipCount--;
+          break;
+        case '}':
+          type=callStackPeek();
+          if(type==BLOCK_TYPE_PROC){// } only closes current procedure when it is not contained in sub-block
+            callStackPop();
+            skipCount--;
+          }
+          break;
+        case '"':
+          stringMode=true;
+          break;
       }
       continue;
     }
@@ -254,13 +281,20 @@ void runProgram(void){
       case '[':
         if(popValue()!=0){
           callStackPush(ip);
+          callStackPush(BLOCK_TYPE_WHILE);
         }else{
-          whileCount=1;
+          skipCount=1;
+          callStackPush(BLOCK_TYPE_WHILE);
         }
         break;
       case ']':
+        type=callStackPop();
+        if(type!=BLOCK_TYPE_WHILE){
+          fprintf(stderr,"unexpected ']' in '%s' block\n",blockTypeName(type));exit(1);
+        }
         if(popValue()!=0){
           ip=callStackPeek();
+          callStackPush(type);
         }else{
           callStackPop();
         }
@@ -270,17 +304,24 @@ void runProgram(void){
         if(n>0){
           callStackPush(ip);
           callStackPush(n);
+          callStackPush(BLOCK_TYPE_FOR);
           pushValue(n);
         }else{
-          forCount=1;
+          skipCount=1;
+          callStackPush(BLOCK_TYPE_FOR);
         }
         }break;
       case ')':{
+        type=callStackPop();
+        if(type!=BLOCK_TYPE_FOR){
+          fprintf(stderr,"unexpected ')' in '%s' block\n",blockTypeName(type));exit(1);
+        }
         int64_t n=callStackPop();
         n--;
         if(n>0){
           ip=callStackPeek();
           callStackPush(n);
+          callStackPush(type);
           pushValue(n);
         }else{
           callStackPop();
@@ -288,18 +329,34 @@ void runProgram(void){
         }break;
       case '{':
         pushValue(ip);
-        procCount=1;
+        skipCount=1;
+        callStackPush(BLOCK_TYPE_PROC);
         break;
       case '}':
-        if(callStackEmpty()){
-          fputs("unexpected '}'\n",stderr);exit(1);
-          break;
-        }
+        do{
+          if(callStackEmpty()){
+            fputs("unexpected '}'\n",stderr);exit(1);
+            break;
+          }
+          type=callStackPop();//pop blocks until {} block is reached
+          switch(type){//pop remaining values in block
+            case BLOCK_TYPE_PROC:
+              break;
+            case BLOCK_TYPE_WHILE:
+              callStackPop();
+              break;
+            case BLOCK_TYPE_FOR:
+              callStackPop();
+              callStackPop();
+              break;
+          }
+        }while(type!=BLOCK_TYPE_PROC);
         ip=callStackPop();//return
         break;
       case '?':{
         uint64_t to=popValue();
         callStackPush(ip);
+        callStackPush(BLOCK_TYPE_PROC);
         ip=to;
         }break;
       //stack manipulation
@@ -327,7 +384,7 @@ void runProgram(void){
         if(count==0)
           break;
         if(count>0){
-          if(safeMode&&count>valCount()){
+          if(checkUnderflow&&count>valCount()){
             fputs("stack underflow",stderr);exit(1);
           }
           int64_t a=readMemory(valueStackPtr+count); // ^ 1 2 3
@@ -337,7 +394,7 @@ void runProgram(void){
           writeMemory(valueStackPtr+1,a);
         }else{
           count=-count;
-          if(safeMode&&count>valCount()){
+          if(checkUnderflow&&count>valCount()){
             fputs("stack underflow",stderr);exit(1);
           }
           int64_t a=readMemory(valueStackPtr+1); // ^ 1 2 3
