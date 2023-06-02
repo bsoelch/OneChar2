@@ -27,7 +27,9 @@ more examples can be found in the examples folder
 
 ## Usage
 Compile the C source-file `src/OneChar.c`
-for example using GCC: `gcc -Wall -Wextra "./src/OneChar.c" -o "./oneChar"`
+for example using GCC:
+
+`gcc -Wall -Wextra "./src/OneChar.c" -o "./oneChar"`
 
 The run the generated executable
 
@@ -88,11 +90,11 @@ pushes the char-code of `"` (`34`) and the length (`1`).
 - `.` pops the top value from the stack `... <A> <B>` -> `... <A>`
 - `:` duplicates the top value on the stack `... <A> <B>` -> `... <A> <B> <B>`
 - `'` swaps the top two stack values `... <A> <B>` -> `... <A> <B>`
-- `,` rotates the stack `... <A> <B> <C> 3` -> `... <B> <C> <A>`    `... <A> <B> <C> <D> -4` -> `... <D> <A> <B> <C>`
-  takes the top element on the stack as argument:
-    if it is positive the element at the given in is put on top of the stack and the elements above it will be shifted down by one
-    if it is negative the top element is pushed down to the given position and the elements above it will be shifted up by one
- <!-- TODO better description-->
+- `,` rotates the stack, takes the top element on the stack as argument:
+
+    `... <A> <B> <C> <D> 3` -> `... <A> <C> <D> <B>` `... <A> <B> <C> <D> <E> -4` -> `... <A> <E> <B> <C> <D> `
+    rotation by a positive amount will move the lowest element to the top and shift all other elements down by one,
+    rotation by a negative value will move the top element to the bottom and shift all other elements up by one.
 
 #### Memory
 - `@` pushes the values at the address given by the top stack value `... <A> <B>` -> `... <A> memory[<B>]`
