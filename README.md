@@ -1,0 +1,190 @@
+# OneChar2
+<!--TODO choose a better name-->
+is a minimalistic Stack based Programming Language.
+
+Every operation takes exactly one printable ASCII-character
+
+## Example Programs
+Hello World:
+
+```
+"Hello World!"(,#)
+```
+
+Print all Fibonacci-numbers less than `1000`
+```
+{0:![;10%48+;2+~,1+'10/';]'.(,#)10#}0$
+1::[:0@?;+':1000<]
+```
+
+Quine:
+
+```
+0~:[:@#1-:@].
+```
+
+more examples can be found in the examples folder
+
+## Usage
+Compile the C source-file `src/OneChar.c`
+for example using GCC: `gcc -Wall -Wextra "./src/OneChar.c" -o "./oneChar"`
+
+The run the generated executable
+
+- To execute code directly use `./oneChar <source-code>`
+- To execute a file use `./oneChar -f <source-file>`
+
+(replacing `<source-code>`/`<source-file>` with the code/file to execute)
+
+## Syntax
+Each operation is exactly one printable ASCII-character,
+all characters are executed from left to right, the program is terminated when the execution hits a null character (`\0`)
+
+### Integers
+- The first digit in and integer-literal pushes that digit onto the value-stack.
+- Each further digit `k` takes the top value `N` from the stack and pushes `10*N+k` onto the stack.
+- A non-digit character terminates and integer-literal.
+
+This rule-set allows writing integer-literals directly into the code.
+
+Example:
+
+```
+1
+1024
+123456789
+```
+results in the 3 numbers `123456789` `1024` and `1` being on the stack.
+
+### Strings
+String literals start with a `"` and end with the next non-escaped `"`
+Within a string literal, every character (excluding `\`) directly pushes its corresponding char-code onto the stack.
+Within strings `\` can be used to escape `"` and `\` as well as insert the space-characters `\n` `\t` and `\r`.
+
+After the end of the string literal the total number of characters is pushed on the stack.
+
+Examples:
+
+```
+"Hello World\n"
+```
+
+pushes the char-codes
+`72` `101` `108` `108` `111` `32` `87` `111` `114` `108` `100` `10`
+with the length `12` being on top of the stack
+
+```
+"\""
+```
+
+pushes the char-code of `"` (`34`) and the length (`1`).
+
+### Comments
+
+`\\` comments out all code until the end of the current line
+
+### Operators
+#### Stack manipulation
+- `.` pops the top value from the stack `... <A> <B>` -> `... <A>`
+- `:` duplicates the top value on the stack `... <A> <B>` -> `... <A> <B> <B>`
+- `'` swaps the top two stack values `... <A> <B>` -> `... <A> <B>`
+- `,` rotates the stack `... <A> <B> <C> 3` -> `... <B> <C> <A>`    `... <A> <B> <C> <D> -4` -> `... <D> <A> <B> <C>`
+  takes the top element on the stack as argument:
+    if it is positive the element at the given in is put on top of the stack and the elements above it will be shifted down by one
+    if it is negative the top element is pushed down to the given position and the elements above it will be shifted up by one
+ <!-- TODO better description-->
+
+#### Memory
+- `@` pushes the values at the address given by the top stack value `... <A> <B>` -> `... <A> memory[<B>]`
+- `$` takes the top stack-value as address and stores the value below `... <A> <B> <C>` -> `... <A>` `memory[<C>]=<B>`
+#### IO
+- `#` prints the lowest byte of top-value on the stack as a character.
+- `_` reads one character from standard input.
+#### Arithmetic/Logic operations
+- `+` `-` `*` `/` `%` binary arithmetic operation on top two stack values `... <A> <B>` -> `... <A <op> B>`
+- `` ` `` computes integer powers `... <A> <B>` -> `... <pow(A,B)>`
+- `&` `|` `^`  bit-wise logical operations on top two stack values `... <A> <B>` -> `... <A <op> B>`
+- `<` `=` `>`  compares the top two stack values, will push `0` (false) or `1` (true) depending on the result of the comparison  `... <A> <B>` -> `... <A <op> B>`
+- `!` replaces the top stack value with its logical negation (`1` if value is zero otherwise `0`)
+- `~` flip all bits in top stack value
+- the is no direct command for negating a number, the sequences `~1+` or `0'-` can be used instead
+
+### Code-Blocks
+#### While-Loops
+`[` and `]` can be used to define while-loops and conditions, they work the same way as the corresponding operators in Brainfuck
+`[` will jump to the matching `]` if the value on top of the stack is `0`,
+`]` will jump to the matching `[` if the value on top of the stack is not `0`.
+
+<!--XXX? examples-->
+
+#### For-Loops
+`(` and `)` can be used to define for-loops
+When the program reaches a `(` the top stack value will be popped and used as the loop-counter.
+While the loop counter is positive the code between `(` and `)` will be executed with the loop-counter as top-value on the stack,
+each iteration the loop-counter is deceased by one
+
+Examples:
+
+```
+10()
+```
+pushes the numbers from `10` to `1` in decreasing order (will be `1` on top of stack)
+
+```
+(,#)
+```
+prints a string that is stored on top of the stack:
+`,` rotates the lowest character of the string (indexed by the length in the loop-counter) to the top of the stack
+`#` prints that character
+
+#### Procedures
+`{` and `}` can be used to define subroutines,
+when the execution hits a `{` it pushes the current instruction pointer
+on the value-stack and jumps to the matching `}`.
+When the execution hits a `?` it jumps to the address given by
+the value on top of the stack, and executes the code until it reaches a `}`,
+then it jumps back to the address after the `?`.
+
+Examples:
+
+```
+{0:![;10%48+;2+~,1+'10/';]'.(,#)10#}0$
+```
+defines a routine for printing positive integers, that is uses in the following code to print the Fibonacci-numbers
+```
+1::[:0@?;+':1000<]
+```
+
+It is possible to use `}` within loop-blocks to define a early return condition
+
+
+```
+{:0<[.0}]}
+```
+defines a procedure that returns the maximum of zero and the provided argument
+
+
+## Memory layout
+
+The program runs on a virtual machine with a memory-cell for every signed 64-bit integer
+(the cells are allocated in blocks of 4096 bytes when a non-zero value is written to some address within that block).
+
+- The programs source code is stored at the memory addresses from `-1` going downwards (first character at address `-1`, next at `-2` ...)
+    when executing the program the instruction pointer is decremented after each instruction
+- The call-stack is at address `I64_MIN (-2^63)` growing upwards
+- The value-stack is at address `I64_MAX (2^63-1)` growing upwards
+- The memory addresses between `0` and `2^62` can be used without impacting the program behavior
+
+## Self modification
+The programs source-code and the code-stacks are stored within the program memory and can be modified at run-time
+
+Examples:
+
+The construct
+```
+0~:[:@#1-:@].
+```
+prints the programs source-code, by reading it from the corresponding memory-section
+
+The code in `examples/bf.txt` uses executing of run-time generated code to create a Brainfuck interpreter
+
