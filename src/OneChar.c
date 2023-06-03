@@ -30,6 +30,7 @@ static int64_t valueStackPtr=VALUE_STACK_MAX;
 static int64_t skipCount=0;
 
 static bool comment=false;
+static bool blockComment=false;
 static bool stringMode=false;
 static bool numberMode=false;
 static bool escapeMode=false;
@@ -160,14 +161,41 @@ int64_t ipow(int64_t a,int64_t e){
   }
   return res;
 }
+int64_t lshift(int64_t a,int64_t b){
+  if(b==0)
+    return a;
+  if(b>0){
+    return b>=64?0:(int64_t)((uint64_t)a<<(uint64_t)b);
+  }else{
+    return b<=-64?0:(int64_t)((uint64_t)a>>(uint64_t)-b);
+  }
+}
+int64_t rshift(int64_t a,int64_t b){
+  if(b==0)
+    return a;
+  if(b>0){
+    return b>=64?0:(int64_t)((uint64_t)a>>(uint64_t)b);
+  }else{
+    return b<=-64?0:(int64_t)((uint64_t)a<<(uint64_t)-b);
+  }
+}
 
-void runProgram(void){
+void runProgram(void){ //re-definable combinations  <> ><   ' followed by '+*&|^<>=
   char command;
   int64_t type;
   while(true){//while program is running
     command=readMemory(ip--)&0xff;
     if(command=='\0')
       return;//reached end of program
+    if(blockComment){
+      if(command!='\\')
+        continue;
+      if(command=='\\'&&readMemory(ip--)=='\\'&&readMemory(ip--)=='\\'){
+        comment=false;
+        blockComment=false;
+      }
+      continue;
+    }
     if(comment){
       if(command=='\n')
         comment=false;
@@ -250,6 +278,12 @@ void runProgram(void){
         case '"':
           stringMode=true;
           break;
+        case '\\':
+          comment=true;
+          if(readMemory(ip--)=='\\'&&readMemory(ip--)=='\\'){// \\\ -> block comment
+            blockComment=true;
+          }
+          break;
       }
       continue;
     }
@@ -276,6 +310,9 @@ void runProgram(void){
         break;
       case '\\':
         comment=true;
+        if(readMemory(ip--)=='\\'&&readMemory(ip--)=='\\'){// \\\ -> block comment
+          blockComment=true;
+        }
         break;
       //control flow
       case '[':
@@ -442,12 +479,21 @@ void runProgram(void){
       case '>':{
         int64_t b=popValue();
         int64_t a=popValue();
-        pushValue(a>b);
+        if(readMemory(ip)!='>'){//comparing with result of comparison is uncommon operation
+          pushValue(a>b);
+          break;
+        }
+        ip--;
+        pushValue(rshift(a,b));
         }break;
       case '<':{
         int64_t b=popValue();
         int64_t a=popValue();
-        pushValue(a<b);
+        if(readMemory(ip)!='<'){//comparing with result of comparison is uncommon operation
+          pushValue(a<b);
+          break;
+        }
+        pushValue(lshift(a,b));
         }break;
       case '=':{
         int64_t b=popValue();
@@ -480,6 +526,11 @@ void runProgram(void){
         }break;
       case '~':{
         int64_t a=popValue();
+        if(readMemory(ip)=='~'){//~~ would have has no effect -> use combination for negation
+          ip--;
+          pushValue(-a);
+          break;
+        }
         pushValue(~a);
         }break;
       case '_':{
