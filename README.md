@@ -79,8 +79,8 @@ pushes the char-code of `"` (`34`) and the length (`1`).
 
 ### Comments
 
-`\\` comments out all code until the end of the current line
-`\\\\\` block-comment, all code until next `\\\\\\` will be commented out
+`\` comments out all code until the end of the current line
+`\\\` block-comment, all code until next `\\\` will be commented out
 
 ### Operators
 #### Stack manipulation
