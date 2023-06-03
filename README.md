@@ -40,7 +40,7 @@ Operations are executed from left to right
 the program is terminated when the execution hits a null character (`\0`)
 
 The program ignores white-spaces and unassigned commands, the only place where separators are needed are between consecutive integer literals
-and to distinguish the multi-character operators `>>` `<<` `~~` from their components
+and to distinguish the multi-character operators `'>` `'<` `~~` from their components
 
 ### Integers
 An integer literal is a sequence of digits (`0` to `9` ) integer literals end at the first non-digit character
@@ -104,7 +104,7 @@ pushes the char-code of `"` (`34`) and the length (`1`).
 - `` ` `` computes integer powers `... <A> <B>` -> `... <pow(A,B)>`
 - `&` `|` `^`  bit-wise logical operations on top two stack values `... <A> <B>` -> `... <A <op> B>`
 - `<` `=` `>`  compares the top two stack values, will push `0` (false) or `1` (true) depending on the result of the comparison  `... <A> <B>` -> `... <A <op> B>`
-- `<<` `>>`  (logical) bit-shift `... <A> <B>` -> `... <A <op> B>`
+- `'<` `'>`  (logical) bit-shift `... <A> <B>` -> `... <A <op> B>`
 - `!` replaces the top stack value with its logical negation (`1` if value is zero otherwise `0`)
 - `~` flip all bits in top stack value
 - `~~` negate value on top of stack

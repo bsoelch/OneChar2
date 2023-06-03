@@ -180,7 +180,7 @@ int64_t rshift(int64_t a,int64_t b){
   }
 }
 
-void runProgram(void){ //re-definable combinations  <> ><   ' followed by '+*&|^<>=
+void runProgram(void){
   char command;
   int64_t type;
   while(true){//while program is running
@@ -405,10 +405,19 @@ void runProgram(void){ //re-definable combinations  <> ><   ' followed by '+*&|^
         pushValue(a);
         }break;
       case '\'':{//swap ## b a -> a b
-        int64_t a=popValue();
         int64_t b=popValue();
-        pushValue(a);
+        int64_t a=popValue();
+        //re-definable combinations '+ '* '& '| '^ '=  '' as modifier
+        if(readMemory(ip)=='>'){//'> can be expressed as <  => can use for bit-shift
+          ip--;
+          pushValue(rshift(a,b));
+          break;
+        }else if(readMemory(ip)=='<'){//'< can be expressed as >  => can use for bit-shift
+          ip--;
+          pushValue(lshift(a,b));
+        }//XXX? ''/ ''% -> unsigned division/modulo
         pushValue(b);
+        pushValue(a);
         }break;
       case ';':{//over ## c b a -> c b a c
         int64_t a=popValue();
@@ -477,22 +486,14 @@ void runProgram(void){ //re-definable combinations  <> ><   ' followed by '+*&|^
         pushValue(a%b);
         }break;
       case '>':{
-        int64_t b=popValue();
-        int64_t a=popValue();
-        if(readMemory(ip)!='>'){//comparing with result of comparison is uncommon operation
+          int64_t b=popValue();
+          int64_t a=popValue();
           pushValue(a>b);
           break;
-        }
-        ip--;
-        pushValue(rshift(a,b));
         }break;
       case '<':{
         int64_t b=popValue();
         int64_t a=popValue();
-        if(readMemory(ip)!='<'){//comparing with result of comparison is uncommon operation
-          pushValue(a<b);
-          break;
-        }
         pushValue(lshift(a,b));
         }break;
       case '=':{
