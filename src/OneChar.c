@@ -494,7 +494,7 @@ void runProgram(void){
       case '<':{
         int64_t b=popValue();
         int64_t a=popValue();
-        pushValue(lshift(a,b));
+        pushValue(a<b);
         }break;
       case '=':{
         int64_t b=popValue();
