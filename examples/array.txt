@@ -1,5 +1,5 @@
 {0'(.+)}0$ \ sum over array
-{1'(.+)}1$ \ product over array
+{1'(.*)}1$ \ product over array
 {;'(.;;<['0].)}2$ \ maximum of array
 {;'(.;;>['0].)}3$ \ minimum of array
 
