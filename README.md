@@ -128,7 +128,7 @@ Examples:
 ```
 10()
 ```
-pushes the numbers from `10` to `1` in decreasing order (will be `1` on top of stack)
+pushes the numbers from `10` to `1` in decreasing order (`1` will be on top of stack)
 
 ```
 (,#)
@@ -171,9 +171,7 @@ The program runs on a virtual machine with a memory-cell for every signed 64-bit
 
 - The programs source code is stored at the memory addresses from `-1` going downwards (first character at address `-1`, next at `-2` ...)
     when executing the program the instruction pointer is decremented after each instruction
-- The call-stack is at address `I64_MIN (-2^63)` growing upwards
-- The value-stack is at address `I64_MAX (2^63-1)` growing upwards
-- The memory addresses between `0` and `2^62` can be used without impacting the program behavior
+- positive memory addresses can be used without impacting the program behavior
 
 ## Self modification
 The programs source-code and the code-stacks are stored within the program memory and can be modified at run-time
